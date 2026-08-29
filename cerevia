@@ -1,0 +1,415 @@
+#!/usr/bin/env bash
+#
+# CEREVIA — one command to run the whole stack.
+#
+#   ./cerevia              build everything, start it, open the browser
+#   ./cerevia start        the same, without opening a browser
+#   ./cerevia stop         stop whatever this script started
+#   ./cerevia status       what is running, and on which port
+#   ./cerevia logs         follow both service logs
+#   ./cerevia build        compile the backend only
+#   ./cerevia test         run the full test suite (backend API + companion)
+#   ./cerevia reset        delete the local database and start clean
+#   ./cerevia doctor       check the machine has what it needs
+#
+# Ports can be overridden: CEREVIA_PORT (default 5000), CEREVIA_CHAT_PORT (5001).
+
+set -Eeuo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$ROOT"
+
+export CEREVIA_ROOT="$ROOT"
+PORT="${CEREVIA_PORT:-5000}"
+CHAT_PORT="${CEREVIA_CHAT_PORT:-5001}"
+
+RUN_DIR="$ROOT/.run"
+LOG_DIR="$RUN_DIR/logs"
+BACKEND_BIN="$ROOT/backend/build/backend"
+BACKEND_LOG="$LOG_DIR/backend.log"
+CHAT_LOG="$LOG_DIR/companion.log"
+BACKEND_PID="$RUN_DIR/backend.pid"
+CHAT_PID="$RUN_DIR/companion.pid"
+
+mkdir -p "$LOG_DIR"
+
+# Load .env if present, without clobbering anything already exported.
+# Keys live here (see .gitignore); the file is optional.
+if [[ -f "$ROOT/.env" ]]; then
+    while IFS='=' read -r key value; do
+        key="${key%%[[:space:]]*}"
+        [[ -z "$key" || "$key" == \#* ]] && continue
+        value="${value%\"}"; value="${value#\"}"
+        value="${value%\'}"; value="${value#\'}"
+        if [[ -z "${!key-}" ]]; then
+            export "$key=$value"
+        fi
+    done < "$ROOT/.env"
+fi
+
+# ---------------------------------------------------------------- output ----
+if [[ -t 1 ]]; then
+    BOLD=$'\033[1m'; DIM=$'\033[2m'; RED=$'\033[31m'; GREEN=$'\033[32m'
+    YELLOW=$'\033[33m'; BLUE=$'\033[34m'; RESET=$'\033[0m'
+else
+    BOLD=''; DIM=''; RED=''; GREEN=''; YELLOW=''; BLUE=''; RESET=''
+fi
+
+say()  { printf '%s\n' "${BLUE}▸${RESET} $*"; }
+ok()   { printf '%s\n' "${GREEN}✓${RESET} $*"; }
+warn() { printf '%s\n' "${YELLOW}!${RESET} $*"; }
+die()  { printf '%s\n' "${RED}✗${RESET} $*" >&2; exit 1; }
+
+banner() {
+    printf '\n%s\n' "${BOLD}  CEREVIA${RESET} ${DIM}· inner weather${RESET}"
+    printf '%s\n\n' "${DIM}  a private, local mental-health companion${RESET}"
+}
+
+# ---------------------------------------------------------------- helpers ---
+
+python_bin() {
+    for candidate in python3 python; do
+        if command -v "$candidate" >/dev/null 2>&1; then
+            if "$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 8) else 1)' 2>/dev/null; then
+                printf '%s' "$candidate"
+                return 0
+            fi
+        fi
+    done
+    return 1
+}
+
+port_busy() {
+    local port="$1"
+    if command -v lsof >/dev/null 2>&1; then
+        lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1
+    else
+        # Fall back to actually trying to reach it.
+        curl -fsS -m 1 "http://127.0.0.1:$port/" >/dev/null 2>&1
+    fi
+}
+
+# Finds the first free port starting at $1. macOS ships AirPlay Receiver
+# listening on 5000, so insisting on the default would break the very first run
+# on a stock Mac. The chosen ports are printed and handed to both services.
+find_free_port() {
+    local start="$1" limit="${2:-20}"
+    for ((offset = 0; offset < limit; offset++)); do
+        local candidate=$((start + offset))
+        if ! port_busy "$candidate"; then
+            printf '%s' "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+pid_alive() {
+    local file="$1"
+    [[ -f "$file" ]] && kill -0 "$(cat "$file")" 2>/dev/null
+}
+
+wait_for_http() {
+    local url="$1" label="$2" attempts="${3:-60}"
+    for ((i = 1; i <= attempts; i++)); do
+        if curl -fsS -m 1 "$url" >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 0.25
+    done
+    printf '%s\n' "${RED}✗${RESET} $label did not come up in time." >&2
+    return 1
+}
+
+open_browser() {
+    local url="$1"
+    if command -v open >/dev/null 2>&1; then open "$url" >/dev/null 2>&1 || true
+    elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$url" >/dev/null 2>&1 || true
+    elif command -v start >/dev/null 2>&1; then start "" "$url" >/dev/null 2>&1 || true
+    else warn "Open $url in your browser."
+    fi
+}
+
+# ---------------------------------------------------------------- doctor ----
+
+cmd_doctor() {
+    banner
+    local problems=0
+
+    if command -v cmake >/dev/null 2>&1; then
+        ok "cmake       $(cmake --version | head -1 | awk '{print $3}')"
+    else
+        warn "cmake       not found — falling back to make (that is fine)"
+    fi
+
+    if command -v make >/dev/null 2>&1; then
+        ok "make        present"
+    else
+        printf '%s\n' "${RED}✗${RESET} make        not found"; problems=$((problems + 1))
+    fi
+
+    local compiler=""
+    for candidate in "${CXX:-}" c++ clang++ g++; do
+        [[ -n "$candidate" ]] && command -v "$candidate" >/dev/null 2>&1 && { compiler="$candidate"; break; }
+    done
+    if [[ -n "$compiler" ]]; then
+        ok "C++ compiler $compiler"
+    else
+        printf '%s\n' "${RED}✗${RESET} C++ compiler not found (install Xcode command line tools, build-essential, or MSVC)"
+        problems=$((problems + 1))
+    fi
+
+    if py="$(python_bin)"; then
+        ok "python      $("$py" --version 2>&1 | awk '{print $2}') ($py)"
+    else
+        printf '%s\n' "${RED}✗${RESET} python      3.8+ not found"; problems=$((problems + 1))
+    fi
+
+    command -v curl >/dev/null 2>&1 && ok "curl        present" || { printf '%s\n' "${RED}✗${RESET} curl not found"; problems=$((problems + 1)); }
+
+    printf '\n'
+    if port_busy "$PORT";      then warn "Port $PORT is already in use."; else ok "Port $PORT free"; fi
+    if port_busy "$CHAT_PORT"; then warn "Port $CHAT_PORT is already in use."; else ok "Port $CHAT_PORT free"; fi
+
+    printf '\n'
+    if (( problems )); then
+        die "$problems requirement(s) missing."
+    fi
+    ok "Everything CEREVIA needs is present. No pip install required."
+}
+
+# ---------------------------------------------------------------- build -----
+
+cmd_build() {
+    say "Building the backend..."
+
+    if command -v cmake >/dev/null 2>&1; then
+        cmake -S backend -B backend/build -DCMAKE_BUILD_TYPE=Release >"$LOG_DIR/build.log" 2>&1 \
+            || { cat "$LOG_DIR/build.log"; die "CMake configuration failed."; }
+        cmake --build backend/build --config Release --parallel >>"$LOG_DIR/build.log" 2>&1 \
+            || { cat "$LOG_DIR/build.log"; die "Build failed. Full log: $LOG_DIR/build.log"; }
+
+        # Multi-config generators (Visual Studio, Xcode) nest the binary.
+        for candidate in backend/build/backend backend/build/Release/backend \
+                         backend/build/Release/backend.exe backend/build/Debug/backend.exe; do
+            [[ -x "$candidate" ]] && BACKEND_BIN="$ROOT/$candidate" && break
+        done
+    else
+        make -C backend >"$LOG_DIR/build.log" 2>&1 \
+            || { cat "$LOG_DIR/build.log"; die "Build failed. Full log: $LOG_DIR/build.log"; }
+    fi
+
+    [[ -x "$BACKEND_BIN" ]] || die "Built, but no executable at $BACKEND_BIN"
+    ok "Backend built → ${BACKEND_BIN#$ROOT/}"
+}
+
+resolve_backend_bin() {
+    for candidate in backend/build/backend backend/build/Release/backend \
+                     backend/build/Release/backend.exe backend/build/Debug/backend.exe; do
+        if [[ -x "$ROOT/$candidate" ]]; then
+            BACKEND_BIN="$ROOT/$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# ---------------------------------------------------------------- start -----
+
+cmd_start() {
+    local open_browser_after="${1:-no}"
+    banner
+
+    command -v curl >/dev/null 2>&1 || die "curl is required."
+    local py; py="$(python_bin)" || die "Python 3.8+ is required for the companion service."
+
+    # Never leave a half-started stack behind from a previous run.
+    stop_quietly
+
+    if ! resolve_backend_bin || [[ "$BACKEND_BIN" -ot "$ROOT/backend/ApiServer.cpp" ]]; then
+        cmd_build
+    else
+        ok "Backend already built"
+    fi
+
+    if port_busy "$PORT"; then
+        local wanted="$PORT"
+        PORT="$(find_free_port $((PORT + 1)))" || die "No free port near $wanted. Set CEREVIA_PORT to one you know is free."
+        warn "Port $wanted is taken (on macOS this is usually AirPlay Receiver) — using $PORT instead."
+    fi
+    if port_busy "$CHAT_PORT" || [[ "$CHAT_PORT" == "$PORT" ]]; then
+        local wanted_chat="$CHAT_PORT"
+        CHAT_PORT="$(find_free_port $((PORT + 1)))" || die "No free port for the companion. Set CEREVIA_CHAT_PORT."
+        warn "Companion moved from $wanted_chat to $CHAT_PORT to keep the two apart."
+    fi
+
+    # Remember the ports so `status`, `stop` and `logs` target the right stack.
+    printf '%s' "$PORT" >"$RUN_DIR/port"
+    printf '%s' "$CHAT_PORT" >"$RUN_DIR/chat_port"
+
+    # --- companion (Python, no dependencies) --------------------------------
+    say "Starting the companion on :$CHAT_PORT..."
+    CEREVIA_CHAT_PORT="$CHAT_PORT" \
+    CEREVIA_BACKEND_URL="http://127.0.0.1:$PORT" \
+        "$py" "$ROOT/ai_chatbot/app.py" >"$CHAT_LOG" 2>&1 &
+    echo $! >"$CHAT_PID"
+
+    # --- backend (C++, serves the API and the frontend) ---------------------
+    say "Starting the server on :$PORT..."
+    CEREVIA_PORT="$PORT" CEREVIA_ROOT="$ROOT" CEREVIA_CHAT_PORT="$CHAT_PORT" \
+        "$BACKEND_BIN" >"$BACKEND_LOG" 2>&1 &
+    echo $! >"$BACKEND_PID"
+
+    if ! wait_for_http "http://127.0.0.1:$PORT/api/health" "The server"; then
+        printf '\n%s\n' "${DIM}--- backend log ---${RESET}"; tail -20 "$BACKEND_LOG"
+        stop_quietly
+        exit 1
+    fi
+    ok "Server ready       http://127.0.0.1:$PORT"
+
+    if wait_for_http "http://127.0.0.1:$CHAT_PORT/health" "The companion" 40; then
+        ok "Companion ready    http://127.0.0.1:$CHAT_PORT"
+    else
+        warn "The companion did not start; chat will be unavailable. See $CHAT_LOG"
+    fi
+
+    # The database is created on first run by the backend itself.
+    ok "Database           ${DIM}database/mental_health.db${RESET}"
+
+    printf '\n  %s\n' "${BOLD}Open  →  http://127.0.0.1:$PORT${RESET}"
+    printf '  %s\n\n' "${DIM}First run? The PIN is 1234. Change it in Settings.${RESET}"
+    printf '  %s\n' "${DIM}Logs:  ./cerevia logs        Stop:  Ctrl-C, or ./cerevia stop${RESET}"
+
+    if [[ "$open_browser_after" == "yes" ]]; then
+        open_browser "http://127.0.0.1:$PORT"
+    fi
+
+    # Ctrl-C here should take the whole stack down with it.
+    trap 'printf "\n"; stop_quietly; ok "Stopped."; exit 0' INT TERM
+    printf '\n%s\n\n' "${DIM}  Running. Press Ctrl-C to stop.${RESET}"
+
+    while pid_alive "$BACKEND_PID"; do
+        sleep 1
+    done
+
+    warn "The server exited unexpectedly. Last lines:"
+    tail -20 "$BACKEND_LOG"
+    stop_quietly
+    exit 1
+}
+
+# ---------------------------------------------------------------- stop ------
+
+stop_quietly() {
+    for pidfile in "$BACKEND_PID" "$CHAT_PID"; do
+        if [[ -f "$pidfile" ]]; then
+            local pid; pid="$(cat "$pidfile")"
+            if kill -0 "$pid" 2>/dev/null; then
+                kill "$pid" 2>/dev/null || true
+                for _ in 1 2 3 4 5 6 7 8 9 10; do
+                    kill -0 "$pid" 2>/dev/null || break
+                    sleep 0.2
+                done
+                kill -9 "$pid" 2>/dev/null || true
+            fi
+            rm -f "$pidfile"
+        fi
+    done
+}
+
+cmd_stop() {
+    local was_running=no
+    pid_alive "$BACKEND_PID" && was_running=yes
+    pid_alive "$CHAT_PID" && was_running=yes
+    stop_quietly
+    if [[ "$was_running" == yes ]]; then ok "Stopped."; else say "Nothing was running."; fi
+}
+
+# ---------------------------------------------------------------- status ----
+
+cmd_status() {
+    banner
+    [[ -f "$RUN_DIR/port" ]] && PORT="$(cat "$RUN_DIR/port")"
+    [[ -f "$RUN_DIR/chat_port" ]] && CHAT_PORT="$(cat "$RUN_DIR/chat_port")"
+    local line
+
+    if pid_alive "$BACKEND_PID"; then
+        line="$(curl -fsS -m 2 "http://127.0.0.1:$PORT/api/health" 2>/dev/null || echo '')"
+        if [[ -n "$line" ]]; then
+            ok "Server     running on :$PORT  ${DIM}(pid $(cat "$BACKEND_PID"))${RESET}"
+        else
+            warn "Server     process alive but not answering on :$PORT"
+        fi
+    else
+        warn "Server     not running"
+    fi
+
+    if pid_alive "$CHAT_PID"; then
+        ok "Companion  running on :$CHAT_PORT  ${DIM}(pid $(cat "$CHAT_PID"))${RESET}"
+    else
+        warn "Companion  not running"
+    fi
+
+    if [[ -f "$ROOT/database/mental_health.db" ]]; then
+        # SQLite runs in WAL mode, so recent writes live in the -wal file and
+        # the main file alone would report a misleadingly tiny size.
+        local size
+        size="$(du -ch "$ROOT/database/mental_health.db"* 2>/dev/null | tail -1 | cut -f1 | tr -d ' ')"
+        ok "Database   database/mental_health.db ($size)"
+    else
+        warn "Database   not created yet — it appears on first start"
+    fi
+    printf '\n'
+}
+
+# ---------------------------------------------------------------- logs ------
+
+cmd_logs() {
+    [[ -f "$BACKEND_LOG" ]] || die "No logs yet. Start CEREVIA first."
+    say "Following logs. Ctrl-C to stop watching (services keep running)."
+    tail -n 40 -f "$BACKEND_LOG" "$CHAT_LOG"
+}
+
+# ---------------------------------------------------------------- reset -----
+
+cmd_reset() {
+    banner
+    printf '%s' "This deletes database/mental_health.db and everything in it. Type DELETE to confirm: "
+    read -r answer
+    [[ "$answer" == "DELETE" ]] || { say "Nothing was deleted."; exit 0; }
+
+    stop_quietly
+    rm -f "$ROOT/database/mental_health.db" \
+          "$ROOT/database/mental_health.db-wal" \
+          "$ROOT/database/mental_health.db-shm" \
+          "$ROOT/database/journal.key"
+    ok "Database removed. The next start creates a fresh one (PIN 1234)."
+}
+
+# ---------------------------------------------------------------- test ------
+
+cmd_test() {
+    banner
+    exec "$ROOT/scripts/test.sh"
+}
+
+# ---------------------------------------------------------------- main ------
+
+case "${1:-run}" in
+    run)     cmd_start yes ;;
+    start)   cmd_start no ;;
+    stop)    cmd_stop ;;
+    restart) cmd_stop; cmd_start no ;;
+    status)  cmd_status ;;
+    logs)    cmd_logs ;;
+    build)   banner; cmd_build ;;
+    test)    cmd_test ;;
+    reset)   cmd_reset ;;
+    doctor)  cmd_doctor ;;
+    -h|--help|help)
+        sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+        ;;
+    *)
+        die "Unknown command '${1}'. Try: ./cerevia help"
+        ;;
+esac

@@ -1,0 +1,378 @@
+{
+  "_comment": "Response fragments for the CEREVIA companion. A reply is composed as reflect + validate + invite, so the same emotion never produces the same sentence twice in a row.",
+  "emotions": {
+    "deep_sad": {
+      "reflect": [
+        "That sounds genuinely heavy.",
+        "There's a lot of weight in what you just wrote.",
+        "It sounds like this has been sitting with you for a while.",
+        "That is a lot to be carrying.",
+        "I can hear how much this is hurting."
+      ],
+      "validate": [
+        "Feeling this way doesn't mean anything is wrong with you — it means something hurt.",
+        "You don't have to justify feeling like this to me.",
+        "Pain this size makes sense when something matters to you.",
+        "You've been holding this on your own, and that is exhausting.",
+        "Nothing about what you're feeling is dramatic or too much."
+      ],
+      "invite": [
+        "What's been the hardest part of it?",
+        "Do you want to tell me what led up to this?",
+        "If you had to name one thing underneath it, what would it be?",
+        "How long has it felt this way?",
+        "Would it help to say the part you haven't said out loud yet?"
+      ]
+    },
+    "mild_sad": {
+      "reflect": [
+        "That sounds like a genuinely off day.",
+        "Something's clearly sitting wrong.",
+        "It sounds like today took more than it gave.",
+        "That's a real disappointment.",
+        "I hear a bit of heaviness in that."
+      ],
+      "validate": [
+        "Small things stack up, and it's fair to feel them.",
+        "Not every day has to be a good one.",
+        "You're allowed to feel low without a big reason for it.",
+        "Anyone would feel a bit flat after that.",
+        "Low days aren't a setback — they're just days."
+      ],
+      "invite": [
+        "What part of today felt heaviest?",
+        "Was there a moment where it shifted?",
+        "What usually helps a little on days like this?",
+        "Is there something specific behind it, or is it more of a general fog?",
+        "What would make the rest of today 10% easier?"
+      ]
+    },
+    "anxious": {
+      "reflect": [
+        "It sounds like your mind is running fast right now.",
+        "That's a lot of what-ifs to be holding at once.",
+        "Anxiety has a way of making everything feel urgent.",
+        "Your body sounds like it's bracing for something.",
+        "That kind of worry is genuinely tiring."
+      ],
+      "validate": [
+        "Your nervous system is trying to protect you — it's just overshooting.",
+        "Worrying about this doesn't mean you're weak; it means it matters to you.",
+        "Anxiety lies about how likely things are. The feeling is still real.",
+        "You are safe in this exact moment, even if it doesn't feel that way.",
+        "You don't have to solve all of it right now."
+      ],
+      "invite": [
+        "What's the loudest worry in your head right now?",
+        "Is there one part of this that's actually in your control?",
+        "Would a two-minute breathing exercise help, or would you rather talk it through?",
+        "What would you tell a friend who was worrying about this?",
+        "What's the most likely outcome, rather than the worst one?"
+      ]
+    },
+    "angry": {
+      "reflect": [
+        "That sounds genuinely infuriating.",
+        "There's real frustration in that.",
+        "It makes sense that hit a nerve.",
+        "Something about this feels unfair to you.",
+        "That's a lot of heat to be holding."
+      ],
+      "validate": [
+        "Anger usually means a boundary got crossed. That's worth listening to.",
+        "You're allowed to be angry about it. Anger isn't a character flaw.",
+        "Being upset about this doesn't make you unreasonable.",
+        "Frustration that big usually points at something you care about.",
+        "You don't have to be calm about something that wasn't okay."
+      ],
+      "invite": [
+        "What exactly crossed the line for you?",
+        "If you could say one thing to them right now, what would it be?",
+        "Is this about what happened today, or something older underneath it?",
+        "What would 'handled well' look like to you?",
+        "Do you want to vent it out, or think about what to do next?"
+      ]
+    },
+    "overwhelmed": {
+      "reflect": [
+        "That's a lot happening at once.",
+        "It sounds like everything is arriving at the same time.",
+        "No wonder it feels like too much.",
+        "You're being pulled in several directions.",
+        "That's more than any one person should have to hold at once."
+      ],
+      "validate": [
+        "Feeling swamped isn't poor time management — it's a real load.",
+        "You can't do all of it at once, and you were never supposed to.",
+        "Overwhelm is what capacity looks like when it's full.",
+        "Needing this to be smaller is not a failing.",
+        "It makes sense that your brain is refusing to pick a starting point."
+      ],
+      "invite": [
+        "If only one thing got done today, which one would matter most?",
+        "What could you take off the list entirely?",
+        "Who could take one piece of this off you?",
+        "What's the smallest next step — not the whole thing, just the next step?",
+        "Would it help to say it all out loud so it's outside your head?"
+      ]
+    },
+    "exhausted": {
+      "reflect": [
+        "You sound genuinely worn down.",
+        "That's the kind of tired sleep doesn't always fix.",
+        "It sounds like you've been running on empty for a while.",
+        "There's not much left in the tank, is there.",
+        "That level of tiredness makes everything else harder."
+      ],
+      "validate": [
+        "Rest isn't a reward you have to earn.",
+        "You've been pushing through for a long time.",
+        "Being this tired affects your mood, not just your energy — that's normal.",
+        "Slowing down isn't giving up.",
+        "Your body is asking for something, and that's worth listening to."
+      ],
+      "invite": [
+        "What's been eating most of your energy lately?",
+        "When did you last have a stretch of proper rest?",
+        "Is it tiredness in your body, or in your head, or both?",
+        "What's one thing you could put down this week?",
+        "What would actually feel restful, rather than just quiet?"
+      ]
+    },
+    "lonely": {
+      "reflect": [
+        "Loneliness like that is genuinely painful.",
+        "It sounds isolating.",
+        "Being surrounded by people and still feeling alone is its own kind of hard.",
+        "That's a real absence you're feeling.",
+        "It sounds like you've been carrying things alone."
+      ],
+      "validate": [
+        "Wanting connection is not neediness. It's how people are built.",
+        "Loneliness isn't evidence that something is wrong with you.",
+        "It makes sense to miss being properly known by someone.",
+        "You reached out here, and that counts for something.",
+        "This feeling is common, even though it convinces you it isn't."
+      ],
+      "invite": [
+        "Who's the last person you felt genuinely at ease with?",
+        "What makes reaching out feel hard right now?",
+        "Is there one person you could send a low-effort message to today?",
+        "What kind of connection are you actually missing — company, or being understood?",
+        "When did this start feeling stronger?"
+      ]
+    },
+    "confused": {
+      "reflect": [
+        "It sounds like you're pulled in two directions.",
+        "That's a genuinely murky place to be.",
+        "Not knowing is uncomfortable in its own right.",
+        "It sounds like the answer keeps moving.",
+        "There's a lot to untangle here."
+      ],
+      "validate": [
+        "You don't have to have this figured out today.",
+        "Being uncertain isn't the same as being lost.",
+        "Mixed feelings usually mean both sides have something real in them.",
+        "It's okay to sit with the question for a while.",
+        "Clarity often arrives after the decision, not before it."
+      ],
+      "invite": [
+        "What would you choose if nobody else had an opinion?",
+        "What are you most afraid of getting wrong?",
+        "If you imagine each option a year from now, which one feels lighter?",
+        "What do you already know, underneath the noise?",
+        "What would need to be true for the choice to feel obvious?"
+      ]
+    },
+    "calm": {
+      "reflect": [
+        "That sounds like a genuinely settled moment.",
+        "It's good to hear some steadiness.",
+        "That sounds like your system got to slow down.",
+        "There's a real calm in how you said that.",
+        "That sounds like a breath you needed."
+      ],
+      "validate": [
+        "Noticing calm while it's happening is a skill worth having.",
+        "These moments count just as much as the hard ones.",
+        "Steadiness is worth protecting.",
+        "You built some of this — it didn't just happen to you.",
+        "It's fine to simply enjoy this without analysing it."
+      ],
+      "invite": [
+        "What helped you get here?",
+        "Is there something in today you'd want to repeat tomorrow?",
+        "What does calm feel like in your body right now?",
+        "Would you want to log this as a check-in so you can look back on it?",
+        "What would help this last a bit longer?"
+      ]
+    },
+    "grateful": {
+      "reflect": [
+        "That's a lovely thing to notice.",
+        "Gratitude like that is worth saying out loud.",
+        "It sounds like something genuinely good landed.",
+        "That's a warm thing to be sitting with.",
+        "You noticed it, which is half of it."
+      ],
+      "validate": [
+        "Naming what's good makes it easier to find next time.",
+        "That's a real thing, not a small one.",
+        "Gratitude doesn't cancel the hard parts, and it doesn't have to.",
+        "It's healthy to let good things count.",
+        "Holding onto this is a good instinct."
+      ],
+      "invite": [
+        "What made that stand out today?",
+        "Is there someone you could tell?",
+        "What else, however small, belongs on that list?",
+        "Would you want to write this one down while it's fresh?",
+        "What does it tell you about what matters to you?"
+      ]
+    },
+    "happy": {
+      "reflect": [
+        "That's genuinely good to hear.",
+        "There's real lightness in that.",
+        "It sounds like today gave you something.",
+        "That's a good day, by the sound of it.",
+        "I can hear the difference in how you wrote that."
+      ],
+      "validate": [
+        "You're allowed to enjoy this fully.",
+        "Good stretches deserve as much attention as hard ones.",
+        "You had a part in this going well.",
+        "Let it be as good as it is.",
+        "This counts, even if it seems small."
+      ],
+      "invite": [
+        "What made the difference today?",
+        "What part of it are you most pleased about?",
+        "Is there a way to build a bit more of that into tomorrow?",
+        "Want to log this while the feeling is fresh?",
+        "Who would be glad to hear about this?"
+      ]
+    },
+    "excited": {
+      "reflect": [
+        "That's genuinely exciting.",
+        "I can feel the energy in that.",
+        "That sounds like a real moment.",
+        "That's the kind of news worth stopping for.",
+        "There's a lot of momentum in what you wrote."
+      ],
+      "validate": [
+        "You've clearly been waiting for this.",
+        "Let yourself be as pleased as you are.",
+        "Big moments are allowed to feel big.",
+        "This is worth celebrating properly, not just noting.",
+        "You earned some of this."
+      ],
+      "invite": [
+        "Tell me the whole thing — what happened?",
+        "What's the first thing you want to do next?",
+        "Who's the first person you told?",
+        "What does this open up for you?",
+        "What surprised you most about it?"
+      ]
+    },
+    "neutral": {
+      "reflect": [
+        "I'm listening.",
+        "Okay — I'm with you.",
+        "Got it.",
+        "That makes sense.",
+        "I'm following."
+      ],
+      "validate": [
+        "There's no right way to say any of this.",
+        "Take whatever time you need with it.",
+        "You can start anywhere.",
+        "No pressure to make it tidy.",
+        "I'm not going anywhere."
+      ],
+      "invite": [
+        "What's been on your mind today?",
+        "How are you actually doing, underneath the surface?",
+        "What would you want to talk about if nothing was off limits?",
+        "Where would you like to start?",
+        "What's the thing you keep coming back to?"
+      ]
+    }
+  },
+  "intents": {
+    "greeting": [
+      "Hello. How are you doing today — honestly, not the polite version?",
+      "Hi. I'm glad you're here. What's your day been like so far?",
+      "Hey. What's sitting with you right now?",
+      "Hello again. How's your head today?",
+      "Hi there. Take your time — where would you like to start?",
+      "Hey. No agenda here. What's going on for you?"
+    ],
+    "greeting_returning": [
+      "Good to see you again. How have things been since we last talked?",
+      "Welcome back. What's shifted since last time?",
+      "Hi again. How are you landing today?"
+    ],
+    "farewell": [
+      "Take care of yourself. I'll be right here when you want to talk again.",
+      "Go gently. You handled today, and that counts.",
+      "Bye for now. Be as kind to yourself as you'd be to a friend.",
+      "See you soon. Rest if you can.",
+      "Take care. Come back any time — no need for a reason."
+    ],
+    "thanks": [
+      "You don't have to thank me — but I'm glad it helped.",
+      "Any time. Showing up for yourself is the hard part, and you did that.",
+      "I'm glad. Come back whenever you need to.",
+      "Of course. You did the actual work here."
+    ],
+    "about_bot": [
+      "I'm CEREVIA's companion — a small, local program that runs entirely on your machine. Nothing you type here is sent anywhere. I'm not a therapist and I can't diagnose anything, but I can listen, help you name what you're feeling, and walk you through grounding exercises.",
+      "I'm the companion built into CEREVIA. I run offline on this computer, so your messages stay with you. I'm not a substitute for a professional, but I'm good at listening and at helping you slow a spiral down."
+    ],
+    "help_request": [
+      "I can do a few things: sit with whatever you want to say, walk you through a breathing or grounding exercise, or help you break something overwhelming into a first step. Which sounds most useful right now?",
+      "Tell me what would help most — talking it through, calming your body down, or making the problem smaller. I can do any of those."
+    ],
+    "affirm": [
+      "Okay. Go ahead — I'm listening.",
+      "Good. Take it at your pace.",
+      "Alright. Tell me more."
+    ],
+    "deny": [
+      "That's completely fine. We can just sit with it instead.",
+      "No problem. What would feel better right now?",
+      "Okay — no pressure. I'm here either way."
+    ],
+    "empty": [
+      "I'm here whenever you're ready to type something.",
+      "Take your time. There's no rush."
+    ]
+  },
+  "escalation": {
+    "repeated_low": [
+      "This is the third time in this conversation you've come back to how heavy things feel. That pattern matters. Have you been able to tell anyone in your life about it?",
+      "You've circled back to this a few times now, which usually means it's bigger than one bad day. Is there someone — a friend, a doctor, a counsellor — you could let in on this?",
+      "I want to name something: this has come up repeatedly today. That's worth taking seriously, and it's more than a chatbot should carry with you alone."
+    ],
+    "suggest_checkin": [
+      "It might be worth logging this as a mood check-in, so future-you can see the pattern rather than having to remember it.",
+      "If you want, log this on the Mood page — a week of check-ins tells you things a single day can't."
+    ],
+    "suggest_journal": [
+      "This might be worth writing out properly on the Journal page. Some things get smaller once they're on paper.",
+      "If it keeps circling, the Journal page is a good place to put it down."
+    ]
+  },
+  "safety": {
+    "crisis": "I'm going to stop and be direct, because what you just said matters more than anything else in this conversation.\n\nI'm a program running on your computer — I can't keep you safe, and you deserve someone who can. Please reach out to a real person right now:\n\n• India — Tele-MANAS: 14416 (free, 24/7) · AASRA: +91-9820466726\n• UK & Ireland — Samaritans: 116 123\n• US & Canada — 988 Suicide & Crisis Lifeline: call or text 988\n• Anywhere — your local emergency number, or findahelpline.com\n\nIf you are in immediate danger, please call your local emergency services now.\n\nIf you can, tell one person near you what you just told me — a friend, a family member, a neighbour. You do not have to explain it well. \"I'm not safe right now\" is enough.\n\nI'm still here, and I'm not going anywhere.",
+    "high_risk": "What you just described sounds genuinely serious, and I don't want to answer it lightly.\n\nThoughts like these are more common than people say out loud, and they are treatable — but they are also a signal that you shouldn't be carrying this alone. Please consider talking to someone today: a person you trust, your doctor, or a helpline.\n\n• India — Tele-MANAS: 14416 (free, 24/7)\n• UK & Ireland — Samaritans: 116 123\n• US & Canada — 988 Suicide & Crisis Lifeline\n• Anywhere — findahelpline.com\n\nCan you tell me a bit more about how long it's felt like this?",
+    "followup": [
+      "I'm still here. Are you safe where you are right now?",
+      "Is there someone nearby you could be with, even without explaining much?",
+      "You reached out, and that took something. Can we get one other person involved?"
+    ]
+  }
+}

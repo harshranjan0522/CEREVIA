@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<title>CEREVIA — Breathe</title>
+<meta name="description" content="Guided breathing and a 5-4-3-2-1 grounding exercise.">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..700;1,9..144,400..600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/cerevia.css">
+<script>
+    /* Applied before first paint so the page never flashes the wrong theme. */
+    (function () {
+        try {
+            var pref = localStorage.getItem('cerevia.theme') || 'system';
+            var dark = pref === 'dark' || (pref === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+            document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+            var mood = localStorage.getItem('cerevia.lastMood');
+            var tint = localStorage.getItem('cerevia.moodTint') === 'on';
+            if (mood && tint) document.documentElement.setAttribute('data-mood-colour', mood);
+        } catch (e) { /* private mode */ }
+    })();
+</script>
+</head>
+<body>
+<div class="shell">
+<main class="canvas" id="main">
+
+    <header class="page-head">
+        <div>
+            <p class="eyebrow">Breathing room</p>
+            <h1 class="page-title">Slow it <em>down</em></h1>
+            <p class="page-lede">A longer out-breath than in-breath is the quickest way to tell your body the emergency is over.</p>
+        </div>
+    </header>
+
+    <div class="grid">
+        <section class="card span-8 card--pad card--tabbed">
+            <div class="card__label">
+                <span>Pattern</span>
+                <span class="muted" id="patternMeta"></span>
+            </div>
+            <div class="row" id="techniqueRow" style="margin-bottom:10px"></div>
+            <p class="card__note" id="techniqueBlurb"></p>
+
+            <div class="breath-stage">
+                <div class="orb" id="orb" data-phase="idle">
+                    <span class="orb__ring"></span>
+                    <span class="orb__ring orb__ring--outer"></span>
+                    <span class="orb__label">
+                        <span class="orb__word" id="orbWord">Ready</span>
+                        <span class="orb__count" id="orbCount">Press start when you are</span>
+                    </span>
+                </div>
+            </div>
+
+            <div class="row row--between">
+                <div class="row">
+                    <button class="btn btn--accent" type="button" id="startBtn">Start</button>
+                    <button class="btn btn--ghost" type="button" id="stopBtn" disabled>Stop</button>
+                </div>
+                <span class="field__hint" id="cycleLabel">0 cycles this session</span>
+            </div>
+        </section>
+
+        <section class="card span-4 self-start">
+            <p class="card__label">All-time</p>
+            <p class="stat"><span id="totalCycles">0</span><span class="stat__unit">cycles</span></p>
+            <p class="stat__caption" id="totalSessions">No sessions logged yet.</p>
+            <p class="card__note" style="margin-top:20px">Sessions are saved to your local database when you stop, so the count survives a restart.</p>
+            <button class="btn btn--danger btn--sm" type="button" id="resetSessions" style="margin-top:18px">Reset the count</button>
+        </section>
+
+        <section class="card span-12 card--pad">
+            <p class="card__label">When breathing is not enough — 5-4-3-2-1 grounding</p>
+            <p class="card__note" style="margin-bottom:18px">
+                Anxiety lives in the future. Naming what is physically around you pulls attention back into the room.
+                Tap each step as you finish it.
+            </p>
+            <ul class="ground-list" id="grounding"></ul>
+            <div class="row" style="margin-top:18px">
+                <button class="btn btn--ghost btn--sm" type="button" id="resetGrounding">Start over</button>
+                <span class="field__hint" id="groundingNote"></span>
+            </div>
+        </section>
+    </div>
+
+</main>
+</div>
+<script type="module" src="assets/js/page-breathe.js"></script>
+</body>
+</html>

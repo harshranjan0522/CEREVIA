@@ -1,0 +1,184 @@
+{
+  "box_breathing": {
+    "title": "Box breathing",
+    "subtitle": "4 in · 4 hold · 4 out · 4 hold",
+    "for": [
+      "anxious",
+      "overwhelmed",
+      "angry"
+    ],
+    "duration": "2 minutes",
+    "why": "Lengthening the exhale tells your nervous system the threat has passed.",
+    "steps": [
+      "Breathe in through your nose for 4 counts.",
+      "Hold, gently, for 4.",
+      "Breathe out through your mouth for 4.",
+      "Hold empty for 4.",
+      "Repeat four times. Stop early if you feel light-headed."
+    ],
+    "page": "breathe.html?technique=box"
+  },
+  "four_seven_eight": {
+    "title": "4-7-8 breathing",
+    "subtitle": "The long exhale one",
+    "for": [
+      "anxious",
+      "exhausted",
+      "deep_sad"
+    ],
+    "duration": "90 seconds",
+    "why": "A longer out-breath than in-breath is the fastest way to down-shift a racing body.",
+    "steps": [
+      "Breathe in quietly through your nose for 4.",
+      "Hold for 7.",
+      "Breathe out through your mouth for 8, like you're fogging a window.",
+      "Do that four times, no more the first time."
+    ],
+    "page": "breathe.html?technique=478"
+  },
+  "grounding_54321": {
+    "title": "5-4-3-2-1 grounding",
+    "subtitle": "Come back to the room",
+    "for": [
+      "anxious",
+      "overwhelmed",
+      "crisis",
+      "deep_sad"
+    ],
+    "duration": "2 minutes",
+    "why": "Anxiety lives in the future. Naming what's physically around you pulls attention back to now.",
+    "steps": [
+      "Name 5 things you can see.",
+      "4 things you can feel touching your skin.",
+      "3 things you can hear.",
+      "2 things you can smell.",
+      "1 thing you can taste — or one thing you like about being here."
+    ],
+    "page": "breathe.html?technique=grounding"
+  },
+  "name_it_to_tame_it": {
+    "title": "Name it to tame it",
+    "subtitle": "Put a word on the feeling",
+    "for": [
+      "confused",
+      "angry",
+      "overwhelmed"
+    ],
+    "duration": "1 minute",
+    "why": "Labelling an emotion measurably reduces its intensity — vague dread is harder to hold than a named feeling.",
+    "steps": [
+      "Finish this sentence: 'Right now I'm feeling ___.'",
+      "Then: 'and it's mostly about ___.'",
+      "Notice where it sits in your body.",
+      "Say it out loud once, even quietly."
+    ],
+    "page": "mood.html"
+  },
+  "smallest_next_step": {
+    "title": "Smallest next step",
+    "subtitle": "Shrink it until it's doable",
+    "for": [
+      "overwhelmed",
+      "exhausted",
+      "confused"
+    ],
+    "duration": "3 minutes",
+    "why": "Overwhelm is usually a planning problem wearing an emotional coat. One concrete step breaks the freeze.",
+    "steps": [
+      "Write down everything on your mind — no order, no filter.",
+      "Circle the one item that would change the most if it were done.",
+      "Shrink it until it takes under ten minutes.",
+      "Do that version. The rest can wait."
+    ],
+    "page": "journal.html"
+  },
+  "thought_check": {
+    "title": "Thought check",
+    "subtitle": "Test the story, not the feeling",
+    "for": [
+      "anxious",
+      "deep_sad",
+      "mild_sad"
+    ],
+    "duration": "4 minutes",
+    "why": "Distressing thoughts feel like facts. Examining them separates what happened from what you concluded.",
+    "steps": [
+      "Write the thought exactly as it sounds in your head.",
+      "What's the evidence for it? What's the evidence against?",
+      "What would you say to a friend who had this exact thought?",
+      "Write a version that's true but kinder."
+    ],
+    "page": "journal.html"
+  },
+  "self_compassion_break": {
+    "title": "Self-compassion break",
+    "subtitle": "Talk to yourself like someone you like",
+    "for": [
+      "deep_sad",
+      "mild_sad",
+      "lonely"
+    ],
+    "duration": "2 minutes",
+    "why": "Self-criticism keeps the threat system switched on. Warmth switches it off.",
+    "steps": [
+      "Say: 'This is a hard moment.'",
+      "Then: 'Hard moments are part of being a person — I'm not the only one.'",
+      "Put a hand where the feeling sits.",
+      "Ask: 'What do I need to hear right now?' — then say it to yourself."
+    ],
+    "page": "journal.html"
+  },
+  "physical_reset": {
+    "title": "Physical reset",
+    "subtitle": "Move the energy somewhere",
+    "for": [
+      "angry",
+      "anxious",
+      "exhausted"
+    ],
+    "duration": "5 minutes",
+    "why": "Anger and anxiety are activation. The body needs somewhere to put it before the mind can think clearly.",
+    "steps": [
+      "Stand up. Shake out your hands and arms for 30 seconds.",
+      "Push against a wall as hard as you can for 10 seconds, three times.",
+      "Then walk — outside if you can, around the room if not.",
+      "Come back to the conversation after, not during."
+    ],
+    "page": "breathe.html"
+  },
+  "one_good_thing": {
+    "title": "One good thing",
+    "subtitle": "Not toxic positivity — just balance",
+    "for": [
+      "mild_sad",
+      "grateful",
+      "neutral"
+    ],
+    "duration": "1 minute",
+    "why": "The brain remembers threats more readily than good moments. Writing one down evens the record.",
+    "steps": [
+      "Name one thing today that wasn't terrible.",
+      "It can be tiny — a coffee, a text, the weather.",
+      "Write down why it landed.",
+      "That's it. You're done."
+    ],
+    "page": "journal.html"
+  },
+  "wind_down": {
+    "title": "Wind down",
+    "subtitle": "For a brain that won't switch off",
+    "for": [
+      "exhausted",
+      "anxious"
+    ],
+    "duration": "10 minutes",
+    "why": "Racing thoughts at night are usually unfinished thinking. Getting them out of your head is what ends them.",
+    "steps": [
+      "Write tomorrow's three things down so your brain can stop rehearsing them.",
+      "Dim the lights an hour before bed; screens on the lowest brightness you can read.",
+      "Breathe out longer than you breathe in for ten breaths.",
+      "If you're still awake after 20 minutes, get up and do something dull in low light."
+    ],
+    "page": "breathe.html?technique=478"
+  }
+}

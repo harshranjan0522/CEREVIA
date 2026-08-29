@@ -1,332 +1,577 @@
-#define WIN32_LEAN_AND_MEAN // makes compilation faster in windows
-#define NOMINMAX            // Prevents Windows from defining min and max macros which conflict with C++ std::min and std::max
-#include "ApiServer.h"      //APIServer.h contains initialization and declaration of API Server
-#include "Database.h"
-#include "MoodTracker.h"
-#include "JournalManager.h"
-#include "libs/json/json.hpp" // JSON library used to parse and create JSON data for API communication
-#include <fstream>            // Used for file reading and writing operations
-#include <cctype>             // Provides functions for character operations like checking spaces
+#include "ApiServer.h"
+
+#include "Paths.h"
+#include "Sql.h"
+#include "libs/json/json.hpp"
+
+#include <cctype>
+#include <chrono>
+#include <cstdlib>
+#include <cstring>
 #include <iostream>
-#include <stdexcept> // Provides standard exception classes for error handling
-#include <string>
-#include <winsock2.h>        // Windows socket library used for network communication
-#include <ws2tcpip.h>        // Provides additional TCP/IP networking utilities for Windows sockets
-using json = nlohmann::json; // Creates a shorter alias 'json' for the nlohmann JSON library bcoz when workign with web, we need this library nlohmann::json
-using namespace std;
-#pragma comment(lib, "ws2_32.lib") // Links the Windows socket library required for network communication - without this, the networking functions won't work
+#include <map>
+#include <sstream>
+#include <thread>
 
-// Global objects used by the API server to interact with database, mood tracking, and journal management
-Database db;
-MoodTracker mood(db);
-JournalManager journal(db);
+using json = nlohmann::json;
 
-// Removes leading and trailing spaces from a string
-static string trim(const string &s)
+namespace {
+
+constexpr int kMaxFailedLogins = 5;
+constexpr int kLockoutSeconds  = 60;
+
+long long nowSeconds()
 {
-    size_t start = 0;
-    while (start < s.size() && isspace(static_cast<unsigned char>(s[start])))
-    {
-        start++;
-    }
-    size_t end = s.size();
-    while (end > start && isspace(static_cast<unsigned char>(s[end - 1])))
-    {
-        end--;
-    }
-    return s.substr(start, end - start);
+    return std::chrono::duration_cast<std::chrono::seconds>(
+               std::chrono::system_clock::now().time_since_epoch())
+        .count();
 }
 
-// Extracts the body part of an HTTP request after the headers
-static string extractBody(const string &req)
+// Parses a request body as JSON. Returns false (and leaves `out` empty) for
+// malformed input so handlers can answer 400 instead of throwing.
+bool parseBody(const http::Request &request, json &out)
 {
-    size_t headerEnd = req.find("\r\n\r\n");
-    if (headerEnd == string::npos)
-    {
-        return "";
+    if (request.body.empty()) {
+        out = json::object();
+        return true;
     }
-    string body = req.substr(headerEnd + 4);
-    while (!body.empty() && (body.back() == '\n' || body.back() == '\r' || body.back() == ' '))
-    {
-        body.pop_back();
+    try {
+        out = json::parse(request.body);
+        return out.is_object();
+    } catch (const std::exception &) {
+        return false;
     }
-    return body;
 }
 
-// Sends a full HTTP response to the client including headers and JSON body
-static void sendHttp(SOCKET client, int statusCode, const string &statusText, const string &body)
+int intParam(const http::Request &request, const std::string &name, int fallback)
 {
-    string response =
-        "HTTP/1.1 " + to_string(statusCode) + " " + statusText + "\r\n""Content-Type: application/json\r\n"
-        "Access-Control-Allow-Origin: *\r\n""Access-Control-Allow-Headers: Content-Type\r\n"
-        "Access-Control-Allow-Methods: POST, GET, OPTIONS\r\n""Connection: close\r\n"
-        "Content-Length: " + to_string(body.size()) + "\r\n\r\n" + body;
-    send(client, response.c_str(), static_cast<int>(response.size()), 0);
+    const std::string raw = request.param(name);
+    if (raw.empty()) return fallback;
+    try {
+        return std::stoi(raw);
+    } catch (const std::exception &) {
+        return fallback;
+    }
 }
 
-// Sends a successful HTTP 200 response with JSON body
-static void sendResponse(SOCKET client, const string &body)
+// Pulls the trailing numeric id out of a path like "/api/mood/12".
+bool trailingId(const std::string &path, const std::string &prefix, int &id)
 {
-    sendHttp(client, 200, "OK", body);
+    if (path.rfind(prefix, 0) != 0) return false;
+    const std::string tail = path.substr(prefix.size());
+    if (tail.empty()) return false;
+    for (char c : tail) {
+        if (!std::isdigit(static_cast<unsigned char>(c))) return false;
+    }
+    try {
+        id = std::stoi(tail);
+        return true;
+    } catch (const std::exception &) {
+        return false;
+    }
 }
 
-// Sends an HTTP error response like 400, 404, or 500
-static void sendError(SOCKET client, int code, const string &body)
+} // namespace
+
+ApiServer::ApiServer() : moods_(db_), journal_(db_) {}
+
+bool ApiServer::loginThrottled(int &retryAfterSeconds)
 {
-    if (code == 404)
-    {
-        sendHttp(client, 404, "Not Found", body);
-        return;
-    }
-    if (code == 500)
-    {
-        sendHttp(client, 500, "Internal Server Error", body);
-        return;
-    }
-    sendHttp(client, 400, "Bad Request", body);
+    const long long until = lockedUntil_.load();
+    if (until <= nowSeconds()) return false;
+    retryAfterSeconds = static_cast<int>(until - nowSeconds());
+    return true;
 }
 
-// Handles CORS preflight OPTIONS request for browsers
-static void sendOptions(SOCKET client)
+void ApiServer::recordLoginFailure()
 {
-    string response = "HTTP/1.1 204 No Content\r\n""Access-Control-Allow-Origin: *\r\n"
-        "Access-Control-Allow-Headers: Content-Type\r\n""Access-Control-Allow-Methods: POST, GET, OPTIONS\r\n"
-        "Connection: close\r\n\r\n";
-    send(client, response.c_str(), static_cast<int>(response.size()), 0);
+    const int failures = failedLogins_.fetch_add(1) + 1;
+    if (failures >= kMaxFailedLogins) {
+        lockedUntil_.store(nowSeconds() + kLockoutSeconds);
+        failedLogins_.store(0);
+        std::cout << "[api] Too many failed PIN attempts; pausing logins for "
+                  << kLockoutSeconds << "s." << std::endl;
+    }
 }
 
-// Starts the API server, initializes Winsock, listens for client requests, and handles all API routes
-void ApiServer::start(int port)
+void ApiServer::resetLoginFailures()
 {
-    WSADATA wsa;
-    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0)
-    {
-        cerr << "[API] WSAStartup failed." << endl;
+    failedLogins_.store(0);
+    lockedUntil_.store(0);
+}
+
+bool ApiServer::routeApi(net::Socket client, const http::Request &request, const std::string &path)
+{
+    const std::string &method = request.method;
+
+    // ---- Meta -------------------------------------------------------------
+    if (path == "/health") {
+        http::sendJson(client, 200, json{
+            {"status", "ok"},
+            {"service", "cerevia-backend"},
+            {"database", db_.isOpen() ? "connected" : "unavailable"},
+        }.dump());
+        return true;
+    }
+
+    if (path == "/meta") {
+        // The launcher may have had to move the companion off its default port
+        // (macOS AirPlay squats on 5000), so the frontend is told where it is
+        // rather than guessing.
+        int companionPort = 5001;
+        if (const char *fromEnv = std::getenv("CEREVIA_CHAT_PORT")) {
+            try {
+                companionPort = std::stoi(fromEnv);
+            } catch (const std::exception &) { /* keep the default */ }
+        }
+
+        http::sendJson(client, 200, json{
+            {"app", "CEREVIA"},
+            {"version", "2.0.0"},
+            {"companionPort", companionPort},
+            {"moods", MoodTracker::vocabulary()},
+            {"journalPrompts", JournalManager::prompts()},
+        }.dump());
+        return true;
+    }
+
+    // ---- Authentication ---------------------------------------------------
+    if (path == "/auth/login" && method == "POST") {
+        int retryAfter = 0;
+        if (loginThrottled(retryAfter)) {
+            http::sendJson(client, 429, json{
+                {"success", false},
+                {"error", "Too many attempts. Try again shortly."},
+                {"retryAfter", retryAfter},
+            }.dump());
+            return true;
+        }
+
+        json body;
+        if (!parseBody(request, body)) {
+            http::sendJsonError(client, 400, "Invalid JSON body.");
+            return true;
+        }
+
+        const std::string pin = body.value("pin", std::string());
+        const bool ok = db_.checkPIN(pin);
+        if (ok) {
+            resetLoginFailures();
+        } else {
+            recordLoginFailure();
+        }
+
+        http::sendJson(client, ok ? 200 : 401, json{
+            {"success", ok},
+            {"displayName", ok ? db_.getDisplayName() : std::string()},
+            {"error", ok ? std::string() : std::string("That PIN does not match.")},
+        }.dump());
+        return true;
+    }
+
+    if (path == "/auth/pin" && method == "POST") {
+        json body;
+        if (!parseBody(request, body)) {
+            http::sendJsonError(client, 400, "Invalid JSON body.");
+            return true;
+        }
+        const std::string pin = body.value("pin", std::string());
+        if (pin.size() < 4 || pin.size() > 12) {
+            http::sendJson(client, 400, json{
+                {"success", false},
+                {"error", "Choose a PIN between 4 and 12 characters."},
+            }.dump());
+            return true;
+        }
+        const bool ok = db_.setPIN(pin);
+        http::sendJson(client, ok ? 200 : 500, json{{"success", ok}}.dump());
+        return true;
+    }
+
+    if (path == "/auth/question" && method == "GET") {
+        http::sendJson(client, 200, json{{"question", db_.getSecurityQuestion()}}.dump());
+        return true;
+    }
+
+    if (path == "/auth/verify" && method == "POST") {
+        json body;
+        if (!parseBody(request, body)) {
+            http::sendJsonError(client, 400, "Invalid JSON body.");
+            return true;
+        }
+        const bool ok = db_.verifySecurityAnswer(body.value("answer", std::string()));
+        http::sendJson(client, ok ? 200 : 401, json{{"verified", ok}}.dump());
+        return true;
+    }
+
+    if (path == "/auth/reset" && method == "POST") {
+        json body;
+        if (!parseBody(request, body)) {
+            http::sendJsonError(client, 400, "Invalid JSON body.");
+            return true;
+        }
+        // The recovery answer has to be re-supplied here so knowing the reset
+        // URL alone is not enough to take over the account.
+        const std::string answer = body.value("answer", std::string());
+        const std::string newPin = body.value("newPin", std::string());
+        if (!answer.empty() && !db_.verifySecurityAnswer(answer)) {
+            http::sendJson(client, 401, json{
+                {"success", false},
+                {"error", "That answer does not match."},
+            }.dump());
+            return true;
+        }
+        if (newPin.size() < 4 || newPin.size() > 12) {
+            http::sendJson(client, 400, json{
+                {"success", false},
+                {"error", "Choose a PIN between 4 and 12 characters."},
+            }.dump());
+            return true;
+        }
+        const bool ok = db_.setPIN(newPin);
+        if (ok) resetLoginFailures();
+        http::sendJson(client, ok ? 200 : 500, json{{"success", ok}}.dump());
+        return true;
+    }
+
+    // ---- Profile ----------------------------------------------------------
+    if (path == "/profile" && method == "GET") {
+        http::sendJson(client, 200, json{
+            {"displayName", db_.getDisplayName()},
+            {"emergencyContact", db_.getEmergencyContact()},
+            {"securityQuestion", db_.getSecurityQuestion()},
+            {"reminderTime", db_.getSetting("reminderTime", "")},
+            {"theme", db_.getSetting("theme", "system")},
+        }.dump());
+        return true;
+    }
+
+    if (path == "/profile" && (method == "POST" || method == "PATCH")) {
+        json body;
+        if (!parseBody(request, body)) {
+            http::sendJsonError(client, 400, "Invalid JSON body.");
+            return true;
+        }
+
+        if (body.contains("displayName") && body["displayName"].is_string()) {
+            db_.setDisplayName(body["displayName"].get<std::string>());
+        }
+        if (body.contains("emergencyContact") && body["emergencyContact"].is_string()) {
+            const std::string contact = body["emergencyContact"].get<std::string>();
+            if (!contact.empty()) db_.setEmergencyContact(contact);
+        }
+        if (body.contains("securityQuestion") && body.contains("securityAnswer") &&
+            body["securityQuestion"].is_string() && body["securityAnswer"].is_string()) {
+            db_.setSecurityQuestion(body["securityQuestion"].get<std::string>(),
+                                    body["securityAnswer"].get<std::string>());
+        }
+        if (body.contains("reminderTime") && body["reminderTime"].is_string()) {
+            db_.setSetting("reminderTime", body["reminderTime"].get<std::string>());
+        }
+        if (body.contains("theme") && body["theme"].is_string()) {
+            db_.setSetting("theme", body["theme"].get<std::string>());
+        }
+
+        http::sendJson(client, 200, json{
+            {"success", true},
+            {"displayName", db_.getDisplayName()},
+            {"emergencyContact", db_.getEmergencyContact()},
+            {"securityQuestion", db_.getSecurityQuestion()},
+            {"reminderTime", db_.getSetting("reminderTime", "")},
+            {"theme", db_.getSetting("theme", "system")},
+        }.dump());
+        return true;
+    }
+
+    // ---- Moods ------------------------------------------------------------
+    if (path == "/mood" && method == "GET") {
+        http::sendJson(client, 200,
+                       moods_.list(intParam(request, "days", 0), intParam(request, "limit", 200)).dump());
+        return true;
+    }
+
+    if (path == "/mood" && method == "POST") {
+        json body;
+        if (!parseBody(request, body)) {
+            http::sendJsonError(client, 400, "Invalid JSON body.");
+            return true;
+        }
+        const json saved = moods_.add(body);
+        if (saved.contains("error")) {
+            http::sendJson(client, 400, saved.dump());
+            return true;
+        }
+        http::sendJson(client, 201, saved.dump());
+        return true;
+    }
+
+    if (path == "/mood/reset" && method == "POST") {
+        http::sendJson(client, 200, json{{"success", true}, {"deleted", moods_.clear()}}.dump());
+        return true;
+    }
+
+    int id = 0;
+    if (trailingId(path, "/mood/", id) && method == "DELETE") {
+        const bool removed = moods_.remove(id);
+        http::sendJson(client, removed ? 200 : 404, json{{"success", removed}}.dump());
+        return true;
+    }
+
+    // ---- Journal ----------------------------------------------------------
+    if (path == "/journal" && method == "GET") {
+        http::sendJson(client, 200,
+                       journal_.list(request.param("q"), intParam(request, "limit", 200)).dump());
+        return true;
+    }
+
+    if (path == "/journal" && method == "POST") {
+        json body;
+        if (!parseBody(request, body)) {
+            http::sendJsonError(client, 400, "Invalid JSON body.");
+            return true;
+        }
+        const json saved = journal_.add(body);
+        if (saved.contains("error")) {
+            http::sendJson(client, 400, saved.dump());
+            return true;
+        }
+        http::sendJson(client, 201, saved.dump());
+        return true;
+    }
+
+    if (path == "/journal/stats" && method == "GET") {
+        http::sendJson(client, 200, journal_.stats().dump());
+        return true;
+    }
+
+    if (path == "/journal/prompt" && method == "GET") {
+        http::sendJson(client, 200, json{{"prompt", JournalManager::randomPrompt()}}.dump());
+        return true;
+    }
+
+    if (path == "/journal/reset" && method == "POST") {
+        http::sendJson(client, 200, json{{"success", true}, {"deleted", journal_.clear()}}.dump());
+        return true;
+    }
+
+    if (trailingId(path, "/journal/", id) && method == "DELETE") {
+        const bool removed = journal_.remove(id);
+        http::sendJson(client, removed ? 200 : 404, json{{"success", removed}}.dump());
+        return true;
+    }
+
+    // ---- Insights ---------------------------------------------------------
+    if (path == "/stats/summary" && method == "GET") {
+        http::sendJson(client, 200, moods_.summary(intParam(request, "days", 14)).dump());
+        return true;
+    }
+
+    if (path == "/suggestion" && method == "GET") {
+        http::sendJson(client, 200, moods_.suggestion().dump());
+        return true;
+    }
+
+    if (path == "/eq" && method == "GET") {
+        http::sendJson(client, 200, moods_.eqResources().dump());
+        return true;
+    }
+
+    if (path == "/crisis" && method == "GET") {
+        http::sendJson(client, 200, moods_.crisisStatus().dump());
+        return true;
+    }
+
+    // ---- Breathing --------------------------------------------------------
+    if (path == "/breathing" && method == "GET") {
+        std::lock_guard<std::mutex> guard(db_.mutex());
+        sql::Stmt stmt(db_.getHandle(),
+                       "SELECT COUNT(*), COALESCE(SUM(cycles), 0), COALESCE(SUM(seconds), 0) "
+                       "FROM breathing_sessions");
+        json out{{"sessions", 0}, {"cycles", 0}, {"seconds", 0}};
+        if (stmt && stmt.step()) {
+            out["sessions"] = stmt.integer(0);
+            out["cycles"] = stmt.integer(1);
+            out["seconds"] = stmt.integer(2);
+        }
+        http::sendJson(client, 200, out.dump());
+        return true;
+    }
+
+    if (path == "/breathing" && method == "POST") {
+        json body;
+        if (!parseBody(request, body)) {
+            http::sendJsonError(client, 400, "Invalid JSON body.");
+            return true;
+        }
+        const std::string technique = body.value("technique", std::string("box"));
+        const int cycles = body.contains("cycles") && body["cycles"].is_number() ? body["cycles"].get<int>() : 0;
+        const int seconds = body.contains("seconds") && body["seconds"].is_number() ? body["seconds"].get<int>() : 0;
+        if (cycles <= 0) {
+            http::sendJson(client, 400, json{{"error", "Nothing to log."}}.dump());
+            return true;
+        }
+
+        std::lock_guard<std::mutex> guard(db_.mutex());
+        sql::Stmt stmt(db_.getHandle(),
+                       "INSERT INTO breathing_sessions(technique, cycles, seconds, created_at) "
+                       "VALUES (?, ?, ?, datetime('now', 'localtime'))");
+        stmt.bind(1, technique).bind(2, cycles).bind(3, seconds);
+        const bool ok = stmt.run();
+        http::sendJson(client, ok ? 201 : 500, json{{"success", ok}}.dump());
+        return true;
+    }
+
+    if (path == "/breathing/reset" && method == "POST") {
+        std::lock_guard<std::mutex> guard(db_.mutex());
+        sql::Stmt stmt(db_.getHandle(), "DELETE FROM breathing_sessions");
+        stmt.run();
+        http::sendJson(client, 200, json{{"success", true}}.dump());
+        return true;
+    }
+
+    return false;
+}
+
+bool ApiServer::route(net::Socket client, const http::Request &request)
+{
+    // CORS preflight — answer before anything else touches the database.
+    if (request.method == "OPTIONS") {
+        http::sendNoContent(client);
+        return true;
+    }
+
+    const std::string &path = request.path;
+
+    if (path.rfind("/api/", 0) == 0) {
+        const std::string apiPath = path.substr(4); // keep the leading slash
+        if (routeApi(client, request, apiPath)) return true;
+        http::sendJsonError(client, 404, "No such endpoint: " + request.method + " " + path);
+        return true;
+    }
+
+    // ---- Legacy v1 routes -------------------------------------------------
+    // Kept so anything still pointing at the old API keeps working.
+    static const std::map<std::string, std::string> kLegacy = {
+        {"POST /login",              "/auth/login"},
+        {"POST /register",           "/auth/pin"},
+        {"GET /auth/question",       "/auth/question"},
+        {"POST /auth/verify",        "/auth/verify"},
+        {"POST /auth/reset",         "/auth/reset"},
+        {"GET /mood/all",            "/mood"},
+        {"POST /mood/add",           "/mood"},
+        {"POST /mood/reset",         "/mood/reset"},
+        {"GET /journal/all",         "/journal"},
+        {"POST /journal/add",        "/journal"},
+        {"GET /journal/count",       "/journal/stats"},
+        {"POST /journal/reset",      "/journal/reset"},
+        {"GET /stats/crisis",        "/crisis"},
+        {"GET /suggestion/today",    "/suggestion"},
+        {"GET /eq/resources",        "/eq"},
+        {"GET /emergency/contact",   "/profile"},
+        {"GET /health",              "/health"},
+    };
+
+    // The one legacy route whose response shape differs from its modern
+    // counterpart, so it gets its own handler rather than an alias.
+    if (request.method == "GET" && path == "/emergency/contact") {
+        http::sendJson(client, 200, nlohmann::json{{"contact", db_.getEmergencyContact()}}.dump());
+        return true;
+    }
+
+    const auto legacy = kLegacy.find(request.method + " " + path);
+    if (legacy != kLegacy.end()) {
+        if (routeApi(client, request, legacy->second)) return true;
+    }
+
+    // ---- Static frontend --------------------------------------------------
+    if (request.method == "GET") {
+        const std::string root = paths::frontendDir();
+        if (http::sendStaticFile(client, root, path)) return true;
+
+        // Extension-less URLs get an .html fallback so /dashboard works.
+        if (path.find('.') == std::string::npos &&
+            http::sendStaticFile(client, root, path + ".html")) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void ApiServer::handleConnection(net::Socket client)
+{
+    http::Request request;
+    if (!http::readRequest(client, request)) {
+        net::closeSocket(client);
         return;
     }
-    SOCKET server_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_fd == INVALID_SOCKET)
-    {
-        cerr << "[API] socket() failed: " << WSAGetLastError() << endl;
-        WSACleanup();
-        return;
+
+    try {
+        if (!route(client, request)) {
+            http::sendJsonError(client, 404, "Not found: " + request.method + " " + request.path);
+        }
+    } catch (const std::exception &error) {
+        std::cerr << "[api] " << request.method << ' ' << request.path
+                  << " failed: " << error.what() << std::endl;
+        http::sendJsonError(client, 500, "The request could not be completed.");
     }
-    BOOL reuseAddr = 1;
-    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR,
-               reinterpret_cast<const char *>(&reuseAddr), sizeof(reuseAddr));
-    sockaddr_in serverAddr{};
-    serverAddr.sin_family = AF_INET;
-    serverAddr.sin_addr.s_addr = INADDR_ANY;
-    serverAddr.sin_port = htons(port);
-    if (::bind(server_fd, reinterpret_cast<sockaddr *>(&serverAddr), sizeof(serverAddr)) == SOCKET_ERROR)
-    {
-        cerr << "[API] bind() failed on port " << port << ": " << WSAGetLastError() << endl;
-        closesocket(server_fd);
-        WSACleanup();
-        return;
+
+    net::closeSocket(client);
+}
+
+bool ApiServer::start(int port)
+{
+    if (!net::startup()) {
+        std::cerr << "[api] Socket layer failed to initialise." << std::endl;
+        return false;
     }
-    if (::listen(server_fd, SOMAXCONN) == SOCKET_ERROR)
-    {
-        cerr << "[API] listen() failed: " << WSAGetLastError() << endl;
-        closesocket(server_fd);
-        WSACleanup();
-        return;
+
+    const net::Socket server = socket(AF_INET, SOCK_STREAM, 0);
+    if (server == net::kInvalidSocket) {
+        std::cerr << "[api] socket() failed: " << net::lastError() << std::endl;
+        net::shutdownLib();
+        return false;
     }
-    cout << "[API] Backend running at http://127.0.0.1:" << port << endl;
-    while (true)
-    {
-        SOCKET client = ::accept(server_fd, nullptr, nullptr);
-        if (client == INVALID_SOCKET)
-        {
-            cerr << "[API] accept() failed: " << WSAGetLastError() << endl;
+
+    int reuse = 1;
+    setsockopt(server, SOL_SOCKET, SO_REUSEADDR,
+               reinterpret_cast<net::OptVal>(&reuse), sizeof(reuse));
+
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK); // local machine only, by design
+    address.sin_port = htons(static_cast<uint16_t>(port));
+
+    if (::bind(server, reinterpret_cast<sockaddr *>(&address), sizeof(address)) == SOCKET_ERROR) {
+        std::cerr << "[api] Could not bind port " << port
+                  << " (error " << net::lastError() << "). Is CEREVIA already running?" << std::endl;
+        net::closeSocket(server);
+        net::shutdownLib();
+        return false;
+    }
+
+    if (::listen(server, SOMAXCONN) == SOCKET_ERROR) {
+        std::cerr << "[api] listen() failed: " << net::lastError() << std::endl;
+        net::closeSocket(server);
+        net::shutdownLib();
+        return false;
+    }
+
+    std::cout << "[api] CEREVIA is listening on http://127.0.0.1:" << port << std::endl;
+    std::cout << "[api] Serving the app from " << paths::frontendDir() << std::endl;
+
+    while (true) {
+        const net::Socket client = ::accept(server, nullptr, nullptr);
+        if (client == net::kInvalidSocket) {
+            std::cerr << "[api] accept() failed: " << net::lastError() << std::endl;
             continue;
         }
-        char buffer[4096];
-        int bytes = recv(client, buffer, sizeof(buffer), 0);
-        if (bytes <= 0)
-        {
-            closesocket(client);
-            continue;
-        }
-        string req(buffer, bytes);
-        size_t lengthPos = req.find("Content-Length:");
-        if (lengthPos != string::npos)
-        {
-            size_t lineEnd = req.find("\r\n", lengthPos);
-            string lenStr = req.substr(lengthPos + 15, lineEnd - (lengthPos + 15));
-            int bodyLen = 0;
-            try
-            {
-                bodyLen = stoi(trim(lenStr));
-            }
-            catch (const exception &)
-            {
-                sendError(client, 400, "{\"error\":\"invalid content-length\"}");
-                closesocket(client);
-                continue;
-            }
-            if (bodyLen < 0)
-            {
-                sendError(client, 400, "{\"error\":\"invalid content-length\"}");
-                closesocket(client);
-                continue;
-            }
-            size_t bodyStart = req.find("\r\n\r\n");
-            if (bodyStart != string::npos)
-            {
-                size_t alreadyHave = req.size() - (bodyStart + 4);
-                while (alreadyHave < static_cast<size_t>(bodyLen))
-                {
-                    bytes = recv(client, buffer, sizeof(buffer), 0);
-                    if (bytes <= 0)
-                    {
-                        break;
-                    }
-                    req.append(buffer, bytes);
-                    alreadyHave += bytes;
-                }
-            }
-        }
-        if (req.rfind("OPTIONS", 0) == 0)
-        {
-            sendOptions(client);
-            closesocket(client);
-            continue;
-        }
-        try
-        {
-            if (req.find("POST /login") != string::npos)
-            {
-                string body = extractBody(req);
-                if (body.empty())
-                {
-                    sendResponse(client, "{\"success\":false}");
-                    closesocket(client);
-                    continue;
-                }
-                json j = json::parse(body);
-                string pin = j.value("pin", "");
-                bool ok = !pin.empty() && db.checkPIN(pin);
-                sendResponse(client, ok ? "{\"success\":true}" : "{\"success\":false}");
-            }
-            else if (req.find("POST /register") != string::npos)
-            {
-                string body = extractBody(req);
-                if (body.empty())
-                {
-                    sendResponse(client, "{\"success\":false}");
-                    closesocket(client);
-                    continue;
-                }
-
-                json j = json::parse(body);
-                string pin = j.value("pin", "");
-                bool ok = !pin.empty() && db.setPIN(pin);
-                sendResponse(client, ok ? "{\"success\":true}" : "{\"success\":false}");
-            }
-            else if (req.find("POST /mood/add") != string::npos)
-            {
-                string body = extractBody(req);
-                mood.addMood(body);
-                sendResponse(client, "{\"message\":\"Mood saved\"}");
-            }
-            else if (req.find("GET /mood/all") != string::npos)
-            {
-                sendResponse(client, mood.getAllMoods());
-            }
-            else if (req.find("POST /journal/add") != string::npos)
-            {
-                string body = extractBody(req);
-                journal.addEntry(body);
-                sendResponse(client, "{\"message\":\"Journal saved\"}");
-            }
-            else if (req.find("GET /journal/all") != string::npos)
-            {
-                sendResponse(client, journal.getAll());
-            }
-            else if (req.find("GET /journal/count") != string::npos)
-            {
-                sendResponse(client, journal.getCountJSON());
-            }
-            else if (req.find("GET /stats/averageMood") != string::npos)
-            {
-                sendResponse(client, mood.getAverageMoodPercent());
-            }
-            else if (req.find("GET /eq/resources") != string::npos)
-{
-    sendResponse(client, mood.getEQResources());
-}
-            else if (req.find("GET /stats/frequentMood") != string::npos)
-            {
-                sendResponse(client, mood.getFrequentMood());
-            }
-            else if (req.find("GET /stats/latestMood") != string::npos)
-            {
-                sendResponse(client, mood.getLatestMood());
-            }
-            else if (req.find("GET /stats/weeklyMood") != string::npos)
-            {
-                sendResponse(client, mood.getWeeklyStats());
-            }
-            else if (req.find("GET /suggestion/today") != string::npos)
-            {
-                sendResponse(client, mood.getSuggestion());
-            }
-            else if (req.find("GET /auth/question") != string::npos)
-            {
-                sendResponse(client, db.getSecurityQuestion());
-            }
-            else if (req.find("POST /auth/verify") != string::npos)
-            {
-                string body = extractBody(req);
-                json j = json::parse(body);
-                string answer = j.value("answer", "");
-                bool ok = !answer.empty() && db.verifySecurityAnswer(answer);
-                sendResponse(client, ok ? "{\"verified\":true}" : "{\"verified\":false}");
-            }
-            else if (req.find("GET /stats/crisis") != string::npos)
-            {
-                sendResponse(client, mood.checkCrisisStatus());
-            }
-            else if (req.find("POST /mood/reset") != string::npos)
-            {
-                sqlite3_exec(db.getHandle(), "DELETE FROM moods", nullptr, nullptr, nullptr);
-                sendResponse(client, "{\"success\":true}");
-            }
-            else if (req.find("POST /journal/reset") != string::npos)
-            {
-                sqlite3_exec(db.getHandle(), "DELETE FROM journals", nullptr, nullptr, nullptr);
-                sendResponse(client, "{\"success\":true}");
-            }
-            else if (req.find("GET /emergency/contact") != string::npos)
-            {
-                sendResponse(client, db.getEmergencyContact());
-            }
-            else if (req.find("POST /auth/reset") != string::npos)
-            {
-                string body = extractBody(req);
-                json j = json::parse(body);
-                string newPin = j.value("newPin", "");
-                bool ok = !newPin.empty() && db.setPIN(newPin);
-                sendResponse(client, ok ? "{\"success\":true}" : "{\"success\":false}");
-            }
-            else if (req.find("GET /health") != string::npos)
-            {
-                sendResponse(client, "{\"status\":\"ok\"}");
-            }
-            else
-            {
-                sendError(client, 404, "{\"status\":\"unknown route\"}");
-            }
-        }
-        catch (const exception &e)
-        {
-            cerr << "[API] Request handling exception: " << e.what() << endl;
-            sendError(client, 500, "{\"error\":\"request failed\"}");
-        }
-        closesocket(client);
+        // One thread per connection: a slow client can no longer stall the
+        // whole server the way the old single-threaded loop allowed.
+        std::thread(&ApiServer::handleConnection, this, client).detach();
     }
-    closesocket(server_fd);
-    WSACleanup();
-    //close everything every route, every socket
+
+    net::closeSocket(server);
+    net::shutdownLib();
+    return true;
 }

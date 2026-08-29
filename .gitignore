@@ -1,17 +1,36 @@
-# Ignore virtual env
-.venv/
-
-# Ignore build files
+# Build output
+backend/build/
 build/
+*.o
+*.obj
+*.exe
 
-# Ignore database
+# Secrets — API keys live here and must never be committed
+.env
+.env.local
+*.env
+
+# Runtime state written by ./cerevia
+.run/
+
+# The local database and its encryption key — personal data, never committed
+database/*.db
+database/*.db-wal
+database/*.db-shm
+database/journal.key
 *.db
 
-# Ignore VS Code settings
-.vscode/
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
 
-# OS files
+# Editors and OS
+.vscode/
+.idea/
 .DS_Store
+Thumbs.db
 
 # Logs
 *.log

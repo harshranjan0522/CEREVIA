@@ -1,27 +1,35 @@
-#ifndef JOURNALMANAGER_H
-#define JOURNALMANAGER_H
-#include <string>
+#ifndef CEREVIA_JOURNALMANAGER_H
+#define CEREVIA_JOURNALMANAGER_H
+
 #include "Database.h"
-using namespace std;
+#include "libs/json/json.hpp"
+
+#include <string>
+
+// ---------------------------------------------------------------------------
+// Journal entries. Bodies are encrypted before they touch the database and
+// decrypted on the way out, so the raw .db file never contains readable prose.
+//
+// Unlike the previous version, nothing here silently deletes the user's
+// writing — entries only disappear when they ask.
+// ---------------------------------------------------------------------------
 class JournalManager {
-private:
-    // Reference to the Database object.
-    // This allows JournalManager to execute SQL queries.
-    Database& db;
-    // Encryption key used for encrypting and decrypting journal text.
-    // This key is used by the Encryption class.
-    string key = "secret";   // encryption key
 public:
-    // Constructor that receives the Database object
-    // so journal operations can interact with the database.
-    JournalManager(Database& db);
-    // Adds a new journal entry to the database.
-    // The entry is received as JSON, encrypted, and then stored.
-    void addEntry(const string& body);
-    // Retrieves all stored journal entries.
-    // The stored encrypted text is decrypted before returning.
-    string getAll();
-    // Returns the total number of journal entries in JSON format.
-    string getCountJSON();
+    explicit JournalManager(Database &db);
+
+    // Returns the stored entry, or an object with "error".
+    nlohmann::json add(const nlohmann::json &payload);
+    nlohmann::json list(const std::string &search, int limit);
+    nlohmann::json stats();
+    bool remove(int id);
+    int clear();
+
+    // Rotating writing prompts, so a blank page is never the only option.
+    static nlohmann::json prompts();
+    static std::string randomPrompt();
+
+private:
+    Database &db_;
 };
-#endif
+
+#endif // CEREVIA_JOURNALMANAGER_H

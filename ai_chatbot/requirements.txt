@@ -1,0 +1,8 @@
+# The CEREVIA companion runs on the Python standard library alone.
+#
+# Earlier versions needed flask, flask-cors and vaderSentiment. Sentiment
+# analysis now uses the lexicon in data/lexicon.json and the HTTP layer uses
+# http.server, so there is nothing to install: Python 3.8 or newer is enough.
+#
+# This file is intentionally empty of requirements. Keeping it means
+# `pip install -r ai_chatbot/requirements.txt` succeeds and installs nothing.
